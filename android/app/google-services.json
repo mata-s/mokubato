@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "913439708987",
+    "project_id": "mokubato-3965b",
+    "storage_bucket": "mokubato-3965b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:913439708987:android:db671c95b08a6d5dfa891e",
+        "android_client_info": {
+          "package_name": "com.example.mokubato"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBHGRyA433_aioa8h-RxxanRNz_Jn49ECU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -39,25 +39,30 @@ class BattleCard extends StatelessWidget {
               _StatusChip(isOpen: data.isOpen),
             ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            data.subtitle,
-            style: const TextStyle(
-              color: Color(0xFF7D6B5D),
-              fontSize: 13,
+          if ((data.description ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              data.description ?? '',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF7D6B5D),
+                fontSize: 13,
+                height: 1.4,
+              ),
             ),
-          ),
+          ],
           const SizedBox(height: 18),
           Row(
             children: [
               _MetaItem(
                 icon: Icons.group_outlined,
-                label: '${data.participants}人',
+                label: '参加者 ${data.participants}人',
               ),
               const SizedBox(width: 18),
               _MetaItem(
                 icon: Icons.calendar_today_outlined,
-                label: '残り${data.daysLeft}日',
+                label: data.periodLabel,
               ),
             ],
           ),

@@ -1,10 +1,21 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../widgets/keyboard_done_bar.dart';
 import 'battle_detail_page.dart';
+import '../models/battle.dart';
 
 enum BattleRule {
-  closestToMyTarget,
   higherIsBetter,
   lowerIsBetter,
+  aboveMyTarget,
+  belowMyTarget,
+  closestToMyTarget,
+}
+
+enum BattleTargetMode {
+  noTarget,
+  useTarget,
 }
 
 enum BattleRecordType {
@@ -13,7 +24,12 @@ enum BattleRecordType {
 }
 
 class CreateBattlePage extends StatefulWidget {
-  const CreateBattlePage({super.key});
+  const CreateBattlePage({
+  super.key,
+  this.initialTitle,
+});
+
+final String? initialTitle;
 
   @override
   State<CreateBattlePage> createState() => _CreateBattlePageState();
@@ -24,13 +40,20 @@ class _CreateBattlePageState extends State<CreateBattlePage> {
   final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _targetValueController = TextEditingController();
   final TextEditingController _unitController = TextEditingController();
+  final FocusNode _titleFocusNode = FocusNode();
+  final FocusNode _descriptionFocusNode = FocusNode();
+  final FocusNode _targetValueFocusNode = FocusNode();
+  final FocusNode _unitFocusNode = FocusNode();
+  final FocusNode _dummyFocusNode = FocusNode();
 
   bool _isOpen = false;
   bool _hideLastWeek = true;
-  BattleRule _selectedRule = BattleRule.closestToMyTarget;
+  BattleTargetMode _selectedTargetMode = BattleTargetMode.noTarget;
+  BattleRule _selectedRule = BattleRule.higherIsBetter;
   BattleRecordType _selectedRecordType = BattleRecordType.increment;
   late DateTime _startDate;
   late DateTime _endDate;
+  bool _isSaving = false;
 
   @override
   void initState() {
@@ -38,6 +61,10 @@ class _CreateBattlePageState extends State<CreateBattlePage> {
     final now = DateTime.now();
     _startDate = DateTime(now.year, now.month, now.day);
     _endDate = DateTime(now.year, now.month + 1, now.day);
+    final initialTitle = widget.initialTitle;
+    if (initialTitle != null && initialTitle.trim().isNotEmpty) {
+      _titleController.text = initialTitle.trim();
+    }
   }
 
   @override
@@ -46,10 +73,16 @@ class _CreateBattlePageState extends State<CreateBattlePage> {
     _descriptionController.dispose();
     _targetValueController.dispose();
     _unitController.dispose();
+    _titleFocusNode.dispose();
+    _descriptionFocusNode.dispose();
+    _targetValueFocusNode.dispose();
+    _unitFocusNode.dispose();
+    _dummyFocusNode.dispose();
     super.dispose();
   }
 
   Future<void> _pickStartDate() async {
+    FocusScope.of(context).requestFocus(_dummyFocusNode);
     final picked = await showDatePicker(
       context: context,
       initialDate: _startDate,
@@ -68,6 +101,7 @@ class _CreateBattlePageState extends State<CreateBattlePage> {
   }
 
   Future<void> _pickEndDate() async {
+    FocusScope.of(context).requestFocus(_dummyFocusNode);
     final picked = await showDatePicker(
       context: context,
       initialDate: _endDate,
@@ -88,23 +122,16 @@ class _CreateBattlePageState extends State<CreateBattlePage> {
 
   String _ruleDescription(BattleRule rule) {
     switch (rule) {
-      case BattleRule.closestToMyTarget:
-        return 'それぞれが自分に合った目標値を決めて、無理なく競えます。';
       case BattleRule.higherIsBetter:
-        return '記録した合計が多い人ほど上位になります。';
+        return '目標値なしで、記録した合計が多い人ほど上位になります。';
       case BattleRule.lowerIsBetter:
-        return '記録した合計が少ない人ほど上位になります。';
-    }
-  }
-
-  String _ruleLabel(BattleRule rule) {
-    switch (rule) {
+        return '目標値なしで、記録した合計が少ない人ほど上位になります。';
+      case BattleRule.aboveMyTarget:
+        return '参加者ごとに目標値を決めて、目標より上回った差で競います。';
+      case BattleRule.belowMyTarget:
+        return '参加者ごとに目標値を決めて、目標より下回った差で競います。';
       case BattleRule.closestToMyTarget:
-        return '自分の目標に近い人が勝ち';
-      case BattleRule.higherIsBetter:
-        return '多い人が勝ち';
-      case BattleRule.lowerIsBetter:
-        return '少ない人が勝ち';
+        return '参加者ごとに目標値を決めて、結果との差が小さい人ほど上位になります。';
     }
   }
 
@@ -117,12 +144,128 @@ class _CreateBattlePageState extends State<CreateBattlePage> {
     }
   }
 
-  String _recordTypeLabel(BattleRecordType recordType) {
+  String _ruleValue(BattleRule rule) {
+    switch (rule) {
+      case BattleRule.higherIsBetter:
+        return 'higher_is_better';
+      case BattleRule.lowerIsBetter:
+        return 'lower_is_better';
+      case BattleRule.aboveMyTarget:
+        return 'above_my_target';
+      case BattleRule.belowMyTarget:
+        return 'below_my_target';
+      case BattleRule.closestToMyTarget:
+        return 'closest_to_my_target';
+    }
+  }
+
+  String _recordTypeValue(BattleRecordType recordType) {
     switch (recordType) {
       case BattleRecordType.increment:
-        return '毎回の記録を足していく';
+        return 'increment';
       case BattleRecordType.current:
-        return '最新の数値で見る';
+        return 'current';
+    }
+  }
+
+  String _generateInviteCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final random = Random.secure();
+    final code = List.generate(
+      6,
+      (_) => chars[random.nextInt(chars.length)],
+    ).join();
+
+    return 'MKB-$code';
+  }
+
+  void _showError(String message) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(message),
+      behavior: SnackBarBehavior.floating,
+    ),
+  );
+}
+
+  Future<void> _createBattle() async {
+    final title = _titleController.text.trim();
+    final description = _descriptionController.text.trim();
+    final targetValueText = _targetValueController.text.trim();
+    final unit = _unitController.text.trim();
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    final inviteCode = _generateInviteCode();
+
+if (title.isEmpty) {
+  _showError('バトル名を入力してください');
+  return;
+}
+
+final needsTarget = _selectedTargetMode == BattleTargetMode.useTarget;
+
+if (needsTarget && targetValueText.isEmpty) {
+  _showError('目標値を入力してください');
+  return;
+}
+
+final targetValue = targetValueText.isEmpty
+    ? null
+    : double.tryParse(targetValueText);
+
+if (targetValueText.isNotEmpty && targetValue == null) {
+  _showError('目標値は数値で入力してください');
+  return;
+}
+
+if (needsTarget && unit.isEmpty) {
+  _showError('単位を入力してください');
+  return;
+}
+
+if (userId == null) {
+  _showError('ログイン情報を取得できませんでした');
+  return;
+}
+
+    setState(() => _isSaving = true);
+
+    try {
+      final battle = await Supabase.instance.client
+          .from('battles')
+          .insert({
+            'title': title,
+            'description': description.isEmpty ? null : description,
+            'rule': _ruleValue(_selectedRule),
+            'record_type': _recordTypeValue(_selectedRecordType),
+            'is_open': _isOpen,
+            'start_date': _startDate.toIso8601String(),
+            'end_date': _endDate.toIso8601String(),
+            'hide_last_week': _hideLastWeek,
+            'created_by': userId,
+            'invite_code': inviteCode,
+          })
+          .select()
+          .single();
+
+      await Supabase.instance.client.from('battle_participants').insert({
+        'battle_id': battle['id'],
+        'user_id': userId,
+        'target_value': targetValue,
+        'unit': unit,
+      });
+
+      if (!mounted) return;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => BattleDetailPage(
+            battle: Battle.fromMap(battle),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -138,6 +281,14 @@ class _CreateBattlePageState extends State<CreateBattlePage> {
           'バトル作成',
           style: TextStyle(fontWeight: FontWeight.w700),
         ),
+      ),
+      bottomSheet: KeyboardDoneBar(
+        focusNodes: [
+          _titleFocusNode,
+          _descriptionFocusNode,
+          _targetValueFocusNode,
+          _unitFocusNode,
+        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -156,10 +307,17 @@ class _CreateBattlePageState extends State<CreateBattlePage> {
               const SizedBox(height: 20),
               _InputCard(
                 title: 'バトル名',
+                requiredMark: true,
                 child: TextField(
                   controller: _titleController,
+                  focusNode: _titleFocusNode,
                   decoration: const InputDecoration(
-                    hintText: '例：今月の食費バトル',
+                    hintText: '例：食費バトル',
+                    hintStyle: TextStyle(
+                      color: Color(0xFFB8AEA5),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                    ),
                     border: InputBorder.none,
                   ),
                   style: const TextStyle(
@@ -173,6 +331,7 @@ class _CreateBattlePageState extends State<CreateBattlePage> {
                 title: '説明',
                 child: TextField(
                   controller: _descriptionController,
+                  focusNode: _descriptionFocusNode,
                   minLines: 3,
                   maxLines: 5,
                   decoration: const InputDecoration(
@@ -183,42 +342,148 @@ class _CreateBattlePageState extends State<CreateBattlePage> {
               ),
               const SizedBox(height: 16),
               _ChoiceCard(
+                title: '参加方法',
+                description: _isOpen
+                    ? '誰でも見つけて参加できます。'
+                    : '招待コードを知っている人だけ参加できます。',
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _ModeButton(
+                        label: '招待制',
+                        selected: !_isOpen,
+                        onTap: () => setState(() => _isOpen = false),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _ModeButton(
+                        label: 'オープン',
+                        selected: _isOpen,
+                        onTap: () => setState(() => _isOpen = true),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _ChoiceCard(
+                title: '期間',
+                description: '開始日と終了日を決めます。まずは1ヶ月がおすすめです。',
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _DateButton(
+                        label: '開始日',
+                        dateText: _formatDate(_startDate),
+                        onTap: _pickStartDate,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _DateButton(
+                        label: '終了日',
+                        dateText: _formatDate(_endDate),
+                        onTap: _pickEndDate,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _ChoiceCard(
                 title: '勝敗ルール',
                 description: _ruleDescription(_selectedRule),
                 child: Column(
                   children: [
-                    _RuleButton(
-                      title: '自分の目標に近い人が勝ち',
-                      subtitle: '参加者ごとに目標値を決めて、結果との差で競います。',
-                      selected: _selectedRule == BattleRule.closestToMyTarget,
-                      onTap: () {
-                        setState(() {
-                          _selectedRule = BattleRule.closestToMyTarget;
-                        });
-                      },
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _ModeButton(
+                            label: '目標値なし',
+                            selected:
+                                _selectedTargetMode == BattleTargetMode.noTarget,
+                            onTap: () {
+                              setState(() {
+                                _selectedTargetMode = BattleTargetMode.noTarget;
+                                _selectedRule = BattleRule.higherIsBetter;
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _ModeButton(
+                            label: '目標値あり',
+                            selected:
+                                _selectedTargetMode == BattleTargetMode.useTarget,
+                            onTap: () {
+                              setState(() {
+                                _selectedTargetMode = BattleTargetMode.useTarget;
+                                _selectedRule = BattleRule.closestToMyTarget;
+                              });
+                            },
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 10),
-                    _RuleButton(
-                      title: '多い人が勝ち',
-                      subtitle: '歩数・勉強時間・回数など、積み上げる目標向けです。',
-                      selected: _selectedRule == BattleRule.higherIsBetter,
-                      onTap: () {
-                        setState(() {
-                          _selectedRule = BattleRule.higherIsBetter;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    _RuleButton(
-                      title: '少ない人が勝ち',
-                      subtitle: '食費・スマホ時間・間食など、減らしたい目標向けです。',
-                      selected: _selectedRule == BattleRule.lowerIsBetter,
-                      onTap: () {
-                        setState(() {
-                          _selectedRule = BattleRule.lowerIsBetter;
-                        });
-                      },
-                    ),
+                    const SizedBox(height: 14),
+                    if (_selectedTargetMode == BattleTargetMode.noTarget) ...[
+                      _RuleButton(
+                        title: '多い人が勝ち',
+                        subtitle: '歩数・勉強時間・回数など、積み上げる目標向けです。',
+                        selected: _selectedRule == BattleRule.higherIsBetter,
+                        onTap: () {
+                          setState(() {
+                            _selectedRule = BattleRule.higherIsBetter;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      _RuleButton(
+                        title: '少ない人が勝ち',
+                        subtitle: '食費・スマホ時間・間食など、減らしたい目標向けです。',
+                        selected: _selectedRule == BattleRule.lowerIsBetter,
+                        onTap: () {
+                          setState(() {
+                            _selectedRule = BattleRule.lowerIsBetter;
+                          });
+                        },
+                      ),
+                    ] else ...[
+                      _RuleButton(
+                        title: '目標より上が勝ち',
+                        subtitle: '目標をどれだけ上回ったかで競います。',
+                        selected: _selectedRule == BattleRule.aboveMyTarget,
+                        onTap: () {
+                          setState(() {
+                            _selectedRule = BattleRule.aboveMyTarget;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      _RuleButton(
+                        title: '目標より下が勝ち',
+                        subtitle: '目標をどれだけ下回ったかで競います。',
+                        selected: _selectedRule == BattleRule.belowMyTarget,
+                        onTap: () {
+                          setState(() {
+                            _selectedRule = BattleRule.belowMyTarget;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      _RuleButton(
+                        title: '目標に近い人が勝ち',
+                        subtitle: '結果と目標値の差が小さい人ほど上位になります。',
+                        selected: _selectedRule == BattleRule.closestToMyTarget,
+                        onTap: () {
+                          setState(() {
+                            _selectedRule = BattleRule.closestToMyTarget;
+                          });
+                        },
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -254,49 +519,56 @@ class _CreateBattlePageState extends State<CreateBattlePage> {
               ),
               const SizedBox(height: 16),
               _ChoiceCard(
-                title: '期間',
-                description: '開始日と終了日を決めます。まずは1ヶ月がおすすめです。',
-                child: Row(
+                title: _selectedTargetMode == BattleTargetMode.useTarget
+                    ? 'あなたの目標・単位'
+                    : '単位',
+                description: _selectedTargetMode == BattleTargetMode.useTarget
+                    ? '目標値ありのルールでは、参加者全員が目標値と単位を入力します。'
+                    : '記録に使う単位を設定できます。未入力でも作成できます。',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: _DateButton(
-                        label: '開始日',
-                        dateText: _formatDate(_startDate),
-                        onTap: _pickStartDate,
+                    if (_selectedTargetMode == BattleTargetMode.useTarget) ...[
+                      const _FieldLabel(
+                        text: '目標値',
+                        requiredMark: true,
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _DateButton(
-                        label: '終了日',
-                        dateText: _formatDate(_endDate),
-                        onTap: _pickEndDate,
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: _targetValueController,
+                        focusNode: _targetValueFocusNode,
+                        keyboardType: TextInputType.text,
+                        decoration: const InputDecoration(
+                          hintText: '例：30000',
+                          filled: true,
+                          fillColor: Color(0xFFF4EFE8),
+                          border: OutlineInputBorder(
+                            borderSide: BorderSide.none,
+                            borderRadius: BorderRadius.all(Radius.circular(14)),
+                          ),
+                        ),
                       ),
+                      const SizedBox(height: 12),
+                    ],
+                    _FieldLabel(
+                      text: '単位',
+                      requiredMark:
+                          _selectedTargetMode == BattleTargetMode.useTarget,
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              _ChoiceCard(
-                title: '参加方法',
-                description: _isOpen
-                    ? '誰でも見つけて参加できます。'
-                    : '招待コードを知っている人だけ参加できます。',
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _ModeButton(
-                        label: '招待制',
-                        selected: !_isOpen,
-                        onTap: () => setState(() => _isOpen = false),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _ModeButton(
-                        label: 'オープン',
-                        selected: _isOpen,
-                        onTap: () => setState(() => _isOpen = true),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _unitController,
+                      focusNode: _unitFocusNode,
+                      decoration: InputDecoration(
+                        hintText: _selectedTargetMode == BattleTargetMode.useTarget
+                            ? '例：円、歩、時間、kg'
+                            : '任意：例 円、歩、時間、kg',
+                        filled: true,
+                        fillColor: const Color(0xFFF4EFE8),
+                        border: const OutlineInputBorder(
+                          borderSide: BorderSide.none,
+                          borderRadius: BorderRadius.all(Radius.circular(14)),
+                        ),
                       ),
                     ),
                   ],
@@ -311,71 +583,12 @@ class _CreateBattlePageState extends State<CreateBattlePage> {
                   setState(() => _hideLastWeek = value);
                 },
               ),
-              const SizedBox(height: 16),
-              _ChoiceCard(
-                title: 'あなたの目標',
-                description: 'まずは作成者であるあなたの目標を設定します。',
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: _targetValueController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        hintText: '例：30000',
-                        filled: true,
-                        fillColor: Color(0xFFF4EFE8),
-                        border: OutlineInputBorder(
-                          borderSide: BorderSide.none,
-                          borderRadius: BorderRadius.all(
-                            Radius.circular(14),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _unitController,
-                      decoration: const InputDecoration(
-                        hintText: '例：円、歩、時間',
-                        filled: true,
-                        fillColor: Color(0xFFF4EFE8),
-                        border: OutlineInputBorder(
-                          borderSide: BorderSide.none,
-                          borderRadius: BorderRadius.all(
-                            Radius.circular(14),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 height: 54,
                 child: FilledButton(
-                  onPressed: () {
-                    final title = _titleController.text.trim().isEmpty
-                        ? '新しいバトル'
-                        : _titleController.text.trim();
-                    final ruleLabel = _ruleLabel(_selectedRule);
-                    final recordTypeLabel = _recordTypeLabel(_selectedRecordType);
-                    final periodLabel =
-                        '${_formatDate(_startDate)}〜${_formatDate(_endDate)}';
-
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => BattleDetailPage(
-                          title: title,
-                          ruleLabel: ruleLabel,
-                          periodLabel: periodLabel,
-                          recordTypeLabel: recordTypeLabel,
-                        ),
-                      ),
-                    );
-                  },
+                  onPressed: _isSaving ? null : _createBattle,
                   style: FilledButton.styleFrom(
                     backgroundColor: const Color(0xFFF5A623),
                     foregroundColor: Colors.white,
@@ -383,13 +596,35 @@ class _CreateBattlePageState extends State<CreateBattlePage> {
                       borderRadius: BorderRadius.circular(18),
                     ),
                   ),
-                  child: const Text(
-                    '作成する',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                  child: _isSaving
+                      ? const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.4,
+                                color: Colors.white,
+                              ),
+                            ),
+                            SizedBox(width: 10),
+                            Text(
+                              '作成中...',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        )
+                      : const Text(
+                          '作成する',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                 ),
               ),
             ],
@@ -400,14 +635,54 @@ class _CreateBattlePageState extends State<CreateBattlePage> {
   }
 }
 
+class _FieldLabel extends StatelessWidget {
+  const _FieldLabel({
+    required this.text,
+    this.requiredMark = false,
+  });
+
+  final String text;
+  final bool requiredMark;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          text,
+          style: const TextStyle(
+            color: Color(0xFF7D6B5D),
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        if (requiredMark) ...[
+          const SizedBox(width: 4),
+          const Text(
+            '*',
+            style: TextStyle(
+              color: Color(0xFFE16A3D),
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 class _InputCard extends StatelessWidget {
   const _InputCard({
     required this.title,
     required this.child,
+    this.requiredMark = false,
   });
 
   final String title;
   final Widget child;
+  final bool requiredMark;
 
   @override
   Widget build(BuildContext context) {
@@ -417,13 +692,9 @@ class _InputCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Color(0xFF7D6B5D),
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-            ),
+          _FieldLabel(
+            text: title,
+            requiredMark: requiredMark,
           ),
           child,
         ],
@@ -489,7 +760,10 @@ class _ModeButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () {
+        FocusManager.instance.primaryFocus?.unfocus();
+        onTap();
+      },
       child: Container(
         height: 44,
         alignment: Alignment.center,
@@ -571,40 +845,72 @@ class _SwitchCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: _cardDecoration(),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return GestureDetector(
+      onTap: () => onChanged(!value),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: _cardDecoration(),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    description,
+                    style: const TextStyle(
+                      color: Color(0xFF7D6B5D),
+                      fontSize: 13,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: value
+                        ? const Color(0xFFE9F5EE)
+                        : const Color(0xFFF4EFE8),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    value ? 'ON' : 'OFF',
+                    style: TextStyle(
+                      color: value
+                          ? const Color(0xFF2F6B4F)
+                          : const Color(0xFF7D6B5D),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  description,
-                  style: const TextStyle(
-                    color: Color(0xFF7D6B5D),
-                    fontSize: 13,
-                    height: 1.4,
-                  ),
+                Switch(
+                  value: value,
+                  activeColor: const Color(0xFF2F6B4F),
+                  onChanged: onChanged,
                 ),
               ],
             ),
-          ),
-          Switch(
-            value: value,
-            activeColor: const Color(0xFF2F6B4F),
-            onChanged: onChanged,
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

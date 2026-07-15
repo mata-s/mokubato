@@ -15,6 +15,11 @@ dependencies:
     sdk: flutter
 
   cupertino_icons: ^1.0.8
+  supabase_flutter: ^2.14.1
+  share_plus: ^13.1.0
+  image_picker: ^1.2.2
+  firebase_core: ^4.12.1
+  firebase_messaging: ^16.4.3
 
 dev_dependencies:
   flutter_test:
